@@ -49,6 +49,7 @@ public class LibraryEventProducerUnitTest {
 		assertThrows(Exception.class, () -> eventProducer.sendLibraryEventWithTopic(libraryEvent).get());
 	}
 
+	@SuppressWarnings("unchecked")
 	@Test
 	void sendLibraryEventWithTopic_success() throws Exception {
 

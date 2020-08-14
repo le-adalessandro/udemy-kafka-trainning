@@ -71,7 +71,8 @@ public class LibraryEventsController {
 					throws Exception {
 
 		if(libraryEvent.getLibraryEventId() == null) {
-			return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Please pass the LibraryEventId");
+			return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+					.body("{\"Message\": \"Please pass the LibraryEventId\"}");
 		}
 
 		log.info("before sendLibraryEvent");

@@ -1,6 +1,7 @@
 package com.learnkafka.controller;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -83,9 +84,58 @@ public class LibraryEventsControllerIntegrationTest {
 				"library-events");
 		Thread.sleep(3000); // wait for the message
 
-		final String expectedRecord = "{\"libraryEvntId\":null,\"book\":{\"bookId\":123,\"bookName\":\"Kafka com Spring Boot\",\"bookAuthor\":\"Me!!\"},\"libraryEventType\":\"NEW\"}";
+		final String expectedRecord = "{\"libraryEventId\":null,\"libraryEventType\":\"NEW\",\"book\":{\"bookId\":123,\"bookName\":\"Kafka com Spring Boot\",\"bookAuthor\":\"Me!!\"}}";
 		final String value = consumerRecord.value();
 		assertEquals(expectedRecord, value);
+	}
+
+	@Test
+	@Timeout(5) // wait for 5s and fails if run out of time
+	void putLibraryEvent() throws InterruptedException {
+
+		final Book book = Book.builder().bookId(123).bookAuthor("Me!!").bookName("Kafka com Spring Boot").build();
+
+		final LibraryEvent libraryEvent = LibraryEvent.builder().libraryEventId(123).book(book).build();
+
+		final HttpHeaders headers = new HttpHeaders();
+		headers.set("content-type", MediaType.APPLICATION_JSON.toString());
+
+		final HttpEntity<LibraryEvent> request = new HttpEntity<>(libraryEvent, headers);
+
+		final ResponseEntity<LibraryEvent> responseEntity = restTemplate.exchange("/v1/libraryevent", HttpMethod.PUT,
+				request, LibraryEvent.class);
+
+		assertEquals(HttpStatus.OK, responseEntity.getStatusCode());
+
+		final ConsumerRecord<Integer, String> consumerRecord = KafkaTestUtils.getSingleRecord(consumer,
+				"library-events");
+		Thread.sleep(3000); // wait for the message
+
+		final String expectedRecord = "{\"libraryEventId\":123,\"libraryEventType\":\"UPDATE\",\"book\":{\"bookId\":123,\"bookName\":\"Kafka com Spring Boot\",\"bookAuthor\":\"Me!!\"}}";
+		final String value = consumerRecord.value();
+		assertEquals(expectedRecord, value);
+	}
+
+	@Test
+	//	@Timeout(5) // wait for 5s and fails if run out of time
+	void putLibraryEvent_shouldFail_whenLibraryEventIdNull() throws InterruptedException {
+
+		final Book book = Book.builder().bookId(123).bookAuthor("Me!!").bookName("Kafka com Spring Boot").build();
+
+		final LibraryEvent libraryEvent = LibraryEvent.builder().libraryEventId(null).book(book).build();
+
+		final HttpHeaders headers = new HttpHeaders();
+		headers.set("content-type", MediaType.APPLICATION_JSON.toString());
+
+		final HttpEntity<LibraryEvent> request = new HttpEntity<>(libraryEvent, headers);
+
+		final ResponseEntity<LibraryEvent> responseEntity = restTemplate.exchange("/v1/libraryevent", HttpMethod.PUT,
+				request, LibraryEvent.class);
+
+		assertEquals(HttpStatus.BAD_REQUEST, responseEntity.getStatusCode());
+		assertNull(responseEntity.getBody().getBook());
+		assertNull(responseEntity.getBody().getLibraryEventId());
+		assertNull(responseEntity.getBody().getLibraryEventType());
 	}
 
 }
