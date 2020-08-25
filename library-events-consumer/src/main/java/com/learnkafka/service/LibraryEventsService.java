@@ -7,7 +7,12 @@ import java.util.Optional;
 
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.RecoverableDataAccessException;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.support.SendResult;
 import org.springframework.stereotype.Service;
+import org.springframework.util.concurrent.ListenableFuture;
+import org.springframework.util.concurrent.ListenableFutureCallback;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonMappingException;
@@ -31,12 +36,18 @@ public class LibraryEventsService {
 	@Autowired
 	ObjectMapper mapper;
 
+	@Autowired
+	KafkaTemplate<Integer, String> kafkaTemplate;
+
 	public void processLibraryEvent(ConsumerRecord<Integer, String> consumerRecord)
 			throws JsonMappingException, JsonProcessingException {
 
 		final LibraryEvent libraryEvent = mapper.readValue(consumerRecord.value(), LibraryEvent.class);
-
 		log.info("libraryEvent: {}", libraryEvent);
+
+		if (libraryEvent.getLibraryEventId() != null && libraryEvent.getLibraryEventId() == 000) {
+			throw new RecoverableDataAccessException("Temporary Network Issue");
+		}
 
 		switch (libraryEvent.getLibraryEventType()) {
 		case NEW:
@@ -53,14 +64,20 @@ public class LibraryEventsService {
 
 	private void validate(LibraryEvent libraryEvent) {
 
-		if(libraryEvent.getLibraryEventId() == null) {
-			throw new IllegalArgumentException("Library Event Id is missing");
-		}
+		Optional<LibraryEvent> searchResult = null;
+		try {
+			if (libraryEvent.getLibraryEventId() == null) {
+				throw new IllegalArgumentException("Library Event Id is missing");
+			}
 
-		final Optional<LibraryEvent> searchResult = repository.findById(libraryEvent.getLibraryEventId());
+			searchResult = repository.findById(libraryEvent.getLibraryEventId());
 
-		if (!searchResult.isPresent()) {
-			throw new IllegalArgumentException("Not a validLibrary Event");
+			if (!searchResult.isPresent()) {
+				throw new IllegalArgumentException("Not a validLibrary Event");
+			}
+		} catch (final IllegalArgumentException e) {
+			log.error("Validation error for the Library Event {}: ", libraryEvent);
+			throw e;
 		}
 
 		log.info("Validation is successfull for the Library Event {}: ", searchResult.get());
@@ -71,5 +88,42 @@ public class LibraryEventsService {
 		libraryEvent.getBook().setLibraryEvent(libraryEvent);
 		repository.save(libraryEvent);
 		log.info("Successfully Persisted the Library Event {}", libraryEvent);
+	}
+
+	public void handleRecovery(ConsumerRecord<Integer, String> record) {
+
+		final Integer key = record.key();
+		final String data = record.value();
+
+		final ListenableFuture<SendResult<Integer, String>> listenableFuture = kafkaTemplate.sendDefault(key, data);
+		listenableFuture.addCallback(new ListenableFutureCallback<SendResult<Integer, String>>() {
+
+			@Override
+			public void onSuccess(SendResult<Integer, String> result) {
+				handleSuccess(key, data, result);
+			}
+
+			@Override
+			public void onFailure(Throwable ex) {
+				handleFailure(key, data, ex);
+			}
+		});
+	}
+
+	private void handleFailure(Integer key, String value, Throwable ex) {
+
+		log.error("Error sending the message and the exception is: {}", ex.getMessage());
+
+		try {
+			throw ex;
+		} catch (final Throwable throwable) {
+			log.error("Error in onFailure: {}", throwable.getMessage());
+		}
+	}
+
+	private void handleSuccess(Integer key, String value, SendResult<Integer, String> result) {
+
+		log.info("Message sent successfully for the key: {} and the value is {}, partirion is {}", key, value,
+				result.getRecordMetadata().partition());
 	}
 }
